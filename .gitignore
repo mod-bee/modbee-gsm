@@ -1,0 +1,29 @@
+build/
+build-*/
+.vscode/
+.idea/
+*.o
+*.a
+*.log
+.DS_Store
+compile_commands.json
+__pycache__/
+*.pyc
+
+# =============================================================================
+# THE DEVELOPMENT TREE, WHICH IS NOT PUBLISHED
+# =============================================================================
+#
+# What ships is src/, examples/, docs/, CMakeLists.txt and library.properties.
+# The directories below are how the library is developed and proven, not what
+# a user of it consumes, and they are not published.
+#
+# Everything that ships is built to work without them: CMakeLists.txt guards
+# each optional subdirectory with EXISTS, so a clean clone configures and
+# builds the library and the C++ examples, and installs under Arduino, with
+# nothing else present.
+internal/
+scripts/
+test/
+tools/
+hardware-test/
