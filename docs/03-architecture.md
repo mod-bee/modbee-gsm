@@ -219,7 +219,7 @@ bring it down again as it comes back.
 | --- | --- | --- |
 | Socket closed | this socket went; others may be fine | reopen this socket |
 | Bearer lost | the data context went; **every** socket is dead | re-establish the bearer, then the sockets |
-| Modem gone | it stopped answering at all | the ladder |
+| Modem gone | it stopped answering at all: the port went, or three commands in a row timed out with nothing heard from it | the ladder |
 
 A library that reports all three as "not connected" makes the application retry
 the wrong thing — reopening a socket over a context that no longer exists,

@@ -468,6 +468,13 @@ private:
     gsm_time_t _retryAt = 0;
     uint32_t   _backoffMs = 1000;
 
+    // Commands that timed out with not one byte from the module since the
+    // first of them, and the engine's totals they were counted against. Ready
+    // has no deadline, so this is how it notices a module that went quiet.
+    uint8_t    _silentTimeouts = 0;
+    uint32_t   _seenTimeouts = 0;
+    uint32_t   _seenBytesIn = 0;
+
     const char* _pin = nullptr;
 
     // Whether the SIM has asked for a PIN, and whether we have already given

@@ -165,6 +165,14 @@ static_assert(kSimWaitBudgetMs >= stepWorstMs(kSimUnlockStepMs) +
 
 const uint32_t kRecoveringBudgetMs = 30000;
 
+// READY HAS NO DEADLINE, SO IT NEEDS ANOTHER WAY TO NOTICE A MODULE THAT HAS
+// STOPPED ANSWERING. This many commands timing out in a row, with not one
+// byte from the module in between, is that: a firmware hang, a supply that
+// went and left it off, a power cycle it did not start itself after. A module
+// that still talks - one command it never answers, a deferred result that
+// does not come - sends bytes, and is left alone.
+const uint8_t kSilentTimeoutsBeforeRecovery = 3;
+
 // One step of a driver's sequence at its worst: its own timeout, the deferred
 // answer if it has one, and every retry it is allowed.
 uint32_t stepWorstMs(const GsmStep& step) {
@@ -228,6 +236,11 @@ bool GsmModem::begin(GsmTransport* transport, GsmDriverRegistry* registry,
     _engine.setFinalResultHook(&GsmModem::onFinalResult, this);
     _state = GsmState::Off;
     _stepOutstanding = false;
+
+    // The engine's totals start again with its begin().
+    _silentTimeouts = 0;
+    _seenTimeouts = _engine.counters().timeouts;
+    _seenBytesIn = _engine.counters().bytesReceived;
 
     // THE ONLY PLACE THE BACKOFF STARTS AGAIN, apart from reaching Ready. An
     // explicit begin() is the application deciding to try afresh; a retry
@@ -757,6 +770,38 @@ void GsmModem::poll() {
         enter(GsmState::Failed, _backoffMs + (gsm_millis() & 0x3FF));
         _engine.abandonAll(GsmStatus::Unresponsive);
         return;
+    }
+
+    // THE MODULE HAS STOPPED ANSWERING, OVER A PORT THAT IS STILL THERE. A
+    // UART cannot tell, so the check above never fires for one - and Ready,
+    // which has no deadline, stayed Ready over a silent module for ever: every
+    // command timed out one by one, every socket was refused, and the ladder
+    // the "modem gone" case is documented to run never ran: on a site, a link
+    // down until somebody cut the power.
+    //
+    // So: timeouts in a row with not one byte from the module are counted, and
+    // a run of them in Ready is the module gone - the ladder, from the bottom.
+    // The other states have their own deadlines, which lead to the ladder too.
+    // Entered BEFORE the engine is emptied, so what it concludes is a straggler.
+    {
+        const GsmAtEngine::Counters& seen = _engine.counters();
+        if (seen.bytesReceived != _seenBytesIn) {
+            _seenBytesIn = seen.bytesReceived;
+            _silentTimeouts = 0;
+        } else if (seen.timeouts != _seenTimeouts && _silentTimeouts < 0xFF) {
+            _silentTimeouts++;
+        }
+        _seenTimeouts = seen.timeouts;
+        if (_state != GsmState::Ready) {
+            _silentTimeouts = 0;
+        } else if (_silentTimeouts >= kSilentTimeoutsBeforeRecovery) {
+            _silentTimeouts = 0;
+            _lastError = GsmStatus::Unresponsive;
+            if (_bearer.markDown()) { _counters.bearerLosses++; }
+            beginRecovery();
+            _engine.abandonAll(GsmStatus::Unresponsive);
+            return;
+        }
     }
 
     // A state with a deadline that has passed moves on. EVERY state that can
