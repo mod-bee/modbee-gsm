@@ -135,6 +135,14 @@ is constructed, so a driver added with `addDriver()` is asked **after** them:
 it takes any module they do not recognise, but cannot take one away from them.
 Make `claims()` match only the modules your driver is for.
 
+To have your driver asked first, or to leave the shipped ones out, build the
+device with exactly the drivers you want, in the order you want them:
+
+```cpp
+GsmDeviceWith<GsmDriverYours, GsmDriverA76XX> gsm;    // yours is asked first
+GsmDeviceWith<GsmDriverYours> gsm;                    // yours alone
+```
+
 **Every command cites the manual section that defines it:**
 
 ```cpp

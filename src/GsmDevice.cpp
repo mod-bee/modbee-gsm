@@ -36,18 +36,7 @@ bool fits(const char* source, size_t capacity) {
 
 } // namespace
 
-GsmDevice::GsmDevice() {
-    // Both shipped drivers, always compiled and always registered.
-    //
-    // NOT selected with the preprocessor, which is the single decision that
-    // makes a library like this usable on a host: one binary can drive
-    // whichever module is actually plugged in, and a board that only ever
-    // meets one pays for the other in an unreferenced class the linker drops.
-    _registry.add(&_a76xx);
-    _registry.add(&_sim707x);
-}
-
-bool GsmDevice::begin(GsmTransport* transport) {
+bool GsmDeviceBase::begin(GsmTransport* transport) {
     // The storage first, so a board that cannot hold what was asked for is
     // told so by name, before the link is touched.
     _beginError = nullptr;
@@ -62,7 +51,7 @@ bool GsmDevice::begin(GsmTransport* transport) {
     if (!_modem.begin(transport, &_registry, _power)) { return false; }
 
     _modem.setApn(_apn);
-    _modem.onEvent(&GsmDevice::onModemEvent, this);
+    _modem.onEvent(&GsmDeviceBase::onModemEvent, this);
     _sockets.begin(&_modem);
     if (_sms != nullptr) { _sms->begin(&_modem); }
     _gnss.begin(&_modem);
@@ -71,8 +60,8 @@ bool GsmDevice::begin(GsmTransport* transport) {
     return true;
 }
 
-bool GsmDevice::apn(const char* name, const char* user, const char* password,
-                    GsmAuth auth) {
+bool GsmDeviceBase::apn(const char* name, const char* user, const char* password,
+                        GsmAuth auth) {
     if (!fits(name, sizeof _apnName) || !fits(user, sizeof _apnUser) ||
         !fits(password, sizeof _apnPassword)) {
         return false;
@@ -91,7 +80,7 @@ bool GsmDevice::apn(const char* name, const char* user, const char* password,
     return true;
 }
 
-void GsmDevice::poll() {
+void GsmDeviceBase::poll() {
     _modem.poll();
 
     // SMS INDICATIONS ARE KEPT ARMED FOR AS LONG AS SOMEBODY LISTENS.
@@ -112,12 +101,12 @@ void GsmDevice::poll() {
     _sockets.poll();
 }
 
-void GsmDevice::onModemEvent(void* context, GsmUrcKind kind, const GsmUrcInfo& info) {
+void GsmDeviceBase::onModemEvent(void* context, GsmUrcKind kind, const GsmUrcInfo& info) {
     // The socket layer needs to know about data, closures and bearer loss;
     // the SMS layer needs to know a message arrived. Routed through here
     // rather than wired directly so that an application may also subscribe
     // without displacing either.
-    GsmDevice* self = (GsmDevice*)context;
+    GsmDeviceBase* self = (GsmDeviceBase*)context;
     self->_sockets.handleEvent(kind, info);
     if (self->_smsEvent != nullptr) { self->_smsEvent(self->_sms, kind, info); }
 }
@@ -132,9 +121,9 @@ void smsPoll(GsmSms* sms, const GsmModem& modem) {
 }
 }  // namespace
 
-GsmSms& GsmDevice::smsPart() {
+GsmSms& GsmDeviceBase::smsPart() {
     static_assert(std::is_trivially_destructible<GsmSms>::value,
-                  "GsmDevice never destroys the SMS layer it attached");
+                  "GsmDeviceBase never destroys the SMS layer it attached");
     if (_sms == nullptr) {
         _sms = new (_smsStorage) GsmSms();
         _sms->begin(&_modem);
@@ -144,8 +133,8 @@ GsmSms& GsmDevice::smsPart() {
     return *_sms;
 }
 
-GsmResult GsmDevice::sendSms(const char* number, const char* text,
-                             GsmDoneFn done, void* context) {
+GsmResult GsmDeviceBase::sendSms(const char* number, const char* text,
+                                 GsmDoneFn done, void* context) {
     // Configured on first use. A device that never sends a message never
     // spends a command on setting one up.
     GsmSms& sms = smsPart();
@@ -153,8 +142,8 @@ GsmResult GsmDevice::sendSms(const char* number, const char* text,
     return sms.send(number, text, done, context);
 }
 
-GsmResult GsmDevice::sendAt(const char* command, uint32_t timeoutMs,
-                            GsmReplyFn onReply, GsmDoneFn onDone, void* context) {
+GsmResult GsmDeviceBase::sendAt(const char* command, uint32_t timeoutMs,
+                                GsmReplyFn onReply, GsmDoneFn onDone, void* context) {
     GsmCommand request;
     request.text = command;
     request.timeoutMs = timeoutMs;

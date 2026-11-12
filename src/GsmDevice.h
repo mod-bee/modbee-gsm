@@ -34,6 +34,7 @@
 // WHAT IT DOES FOR YOU:
 //   - registers both shipped drivers and picks the right one from what the
 //     module says about itself, so no module is named anywhere in your sketch
+//     (GsmDeviceWith<> at the end of this file links only the ones you name)
 //   - runs the whole bring-up sequence, with the module's own timings
 //   - reconnects by itself, with a jittered backoff
 //   - hands you Arduino's own Client and UDP over cellular
@@ -64,10 +65,11 @@
 #include "transport/GsmStreamTransport.h"
 #endif
 
-class GsmDevice {
+// Everything GsmDevice offers except the drivers, which the derived class
+// supplies. Code that drives "a device" whichever drivers it was built with -
+// a function, a block, a wrapper - takes a GsmDeviceBase&.
+class GsmDeviceBase {
 public:
-    GsmDevice();
-
     // --- Opening ---
 
     // A transport you built. The host form, and the one a test uses.
@@ -141,8 +143,10 @@ public:
     // Your board's power wiring, if it has any. Optional; see the header note.
     void powerControl(GsmPowerControl* hooks) { _power = hooks; }
 
-    // A driver for a module this library does not ship. Registered before the
-    // built-in ones, so a specific driver wins over a general one.
+    // A driver for a module this library does not ship. Registered after the
+    // ones the device was built with; the first driver that claims a module
+    // wins, so to put a specific driver ahead of a shipped one, build the
+    // device with GsmDeviceWith<> and add them in the order wanted.
     bool addDriver(GsmDriver* driver) { return _registry.add(driver); }
 
     // --- Driving ---
@@ -374,12 +378,14 @@ public:
     GsmResult sendAt(const char* command, uint32_t timeoutMs,
                      GsmReplyFn onReply, GsmDoneFn onDone, void* context);
 
+protected:
+    // No drivers: a derived class registers its own.
+    GsmDeviceBase() {}
+
 private:
     static void onModemEvent(void* context, GsmUrcKind kind, const GsmUrcInfo& info);
 
     GsmDriverRegistry _registry;
-    GsmDriverA76XX    _a76xx;
-    GsmDriverSIM707x  _sim707x;
 
     GsmModem   _modem;
     GsmSockets _sockets;
@@ -405,3 +411,58 @@ private:
     char _apnUser[GSM_APN_USER_MAX + 1] = {0};
     char _apnPassword[GSM_APN_PASSWORD_MAX + 1] = {0};
 };
+
+// =============================================================================
+// WHICH DRIVERS ARE LINKED
+// =============================================================================
+//
+// A driver is linked when a device holds one. GsmDevice holds both shipped
+// drivers; GsmDeviceWith<...> holds exactly the ones named, so a board that
+// only ever meets one module family links only that driver:
+//
+//     GsmDeviceWith<GsmDriverA76XX>   gsm;     // A76XX only
+//     GsmDeviceWith<GsmDriverSIM707x> gsm;     // SIM707x only
+//     GsmDeviceWith<>                 gsm;     // none; addDriver() your own
+//
+// The module is still identified at run time: a module the named drivers do
+// not claim is refused by name, exactly as GsmDevice refuses an unknown one.
+// Drivers are registered in the order given, and are held by value - no heap.
+
+// The drivers a device holds, constructed before the device and destroyed
+// after it, so the modem never outlives the driver it was given.
+template <typename... Drivers>
+class GsmDriverSet {
+public:
+    void registerDrivers(GsmDeviceBase&) {}
+};
+
+// The rest as a base rather than a member, so the empty end of the list takes
+// no room.
+template <typename First, typename... Rest>
+class GsmDriverSet<First, Rest...> : public GsmDriverSet<Rest...> {
+    static_assert(std::is_base_of<GsmDriver, First>::value,
+                  "GsmDeviceWith<> takes driver classes derived from GsmDriver");
+
+public:
+    void registerDrivers(GsmDeviceBase& device) {
+        device.addDriver(&_first);
+        GsmDriverSet<Rest...>::registerDrivers(device);
+    }
+
+private:
+    First _first;
+};
+
+template <typename... Drivers>
+class GsmDeviceWith : private GsmDriverSet<Drivers...>, public GsmDeviceBase {
+    static_assert(sizeof...(Drivers) <= GSM_DRIVERS_MAX,
+                  "more drivers than GSM_DRIVERS_MAX holds");
+
+public:
+    GsmDeviceWith() { this->registerDrivers(*this); }
+};
+
+// Both shipped drivers, chosen at run time from what the module says. One
+// binary drives either family; a build that knows its family can name it with
+// GsmDeviceWith<> and link only that driver.
+class GsmDevice : public GsmDeviceWith<GsmDriverA76XX, GsmDriverSIM707x> {};

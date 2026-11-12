@@ -63,8 +63,35 @@ temporary, and the bearer is brought up again on every reconnect.
 
 `addDriver()` returns false for a driver already registered, so calling it
 twice costs nothing, and false when the registry is full (`GSM_DRIVERS_MAX`).
-An added driver is asked **after** the two shipped ones; see
+An added driver is asked **after** the ones the device holds; see
 [04](04-adding-a-modem.md#writing-one).
+
+### One driver only
+
+`GsmDevice` holds both shipped drivers, so both are linked. A build that only
+ever meets one module family names the drivers it wants instead:
+
+```cpp
+GsmDeviceWith<GsmDriverA76XX>   gsm;    // A76XX only
+GsmDeviceWith<GsmDriverSIM707x> gsm;    // SIM707x only
+GsmDeviceWith<>                 gsm;    // none; addDriver() your own
+```
+
+Every method above is the same on each. The drivers are held by value and
+registered in the order named. The module is still identified at run time,
+and one that no held driver claims fails identification with
+`NotSupportedByModule`, as an unknown module does on `GsmDevice`.
+
+All of them derive from `GsmDeviceBase`, which carries the whole API. Code
+that works with whichever device was built takes a `GsmDeviceBase&`:
+
+```cpp
+void report(GsmDeviceBase& gsm) { Serial.println(gsm.stateName()); }
+```
+
+On an ESP32-S3, holding only `GsmDriverA76XX` links 5.9 KB less flash than
+`GsmDevice`, and holding only `GsmDriverSIM707x` links 7.3 KB less. Each also
+saves the other driver's RAM (about 130 bytes).
 
 **`radioPreference()`** matters on an LPWA module (LTE-M / NB-IoT): one
 searching for a technology that is not on air never registers and never says

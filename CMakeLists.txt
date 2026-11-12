@@ -30,8 +30,8 @@ option(GSM_NO_EXCEPTIONS   "Build without exceptions or RTTI, as a wrapper would
 # TinyGSM unusable here: one firmware drives one family, and a host build that
 # adapts to whatever is on /dev/ttyUSB0 cannot be written at all. Every driver
 # compiles, always, and which one is used is decided at run time from ATI. A
-# board that only ever meets one module pays for the others in unreferenced
-# classes, which --gc-sections drops.
+# driver is linked when a device holds one: GsmDevice holds both, and a build
+# that knows its family holds only that one with GsmDeviceWith<> (GsmDevice.h).
 
 # The library parses bytes it did not produce, over a link that can corrupt
 # them, at a baud rate that might be wrong. An out-of-bounds read on a

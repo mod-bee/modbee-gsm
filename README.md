@@ -118,8 +118,11 @@ walks through the rest, including the serial buffer setting that matters most.
 | `GsmDriverA76XX` | SIMCom A7670, A7672, A7678, A7608 | LTE Cat-1 | Proven on an A7670G over a live network |
 | `GsmDriverSIM707x` | SIMCom SIM7070, SIM7080, SIM7090 | LTE-M and NB-IoT | Checked against recorded sessions; not yet on a live network |
 
-Both drivers are compiled into every build and chosen at run time. A module
-neither recognises is refused by name rather than driven with the wrong
+`GsmDevice` holds both drivers and chooses at run time. A build that knows its
+module family can hold only that driver, and link only that driver, with
+`GsmDeviceWith<GsmDriverA76XX>` or `GsmDeviceWith<GsmDriverSIM707x>` (about
+6 KB less flash on an ESP32-S3); see [the API](docs/api.md#one-driver-only).
+A module none of the held drivers recognises is refused by name rather than driven with the wrong
 dialect; [adding a modem](docs/04-adding-a-modem.md) explains how to write a
 driver for it.
 
