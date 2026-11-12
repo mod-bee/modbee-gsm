@@ -44,7 +44,7 @@
 // Commands held at once, BY DEFAULT. Past it a command is REFUSED with
 // QueueFull rather than dropped - a caller told "accepted" that gets nothing is
 // the failure this whole file exists to prevent. setCapacity() changes it
-// before begin(); GsmDevice::setCapacity() and GSM_MODEM's AT_QUEUE reach it.
+// before begin(); GsmDevice::setCapacity() and the OpenPLC modem block's nAtQueueLen reach it.
 #ifndef GSM_QUEUE_CAPACITY
 #define GSM_QUEUE_CAPACITY 12
 #endif

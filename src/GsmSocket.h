@@ -35,7 +35,7 @@
 #include "GsmModem.h"
 
 // The DEFAULT socket count and per-socket buffers; GsmSockets::setCapacity()
-// (GsmDevice::setCapacity(), GSM_MODEM's SOCKETS and SOCKET_BUFFER) changes
+// (GsmDevice::setCapacity(), the OpenPLC modem block's stCapacityConfig) changes
 // them before the modem is opened. Deliberately modest: a profile may declare
 // thirteen sockets, and thirteen times two 1500-byte buffers is 39 kB that few
 // boards have spare. The setting is what the application can afford; the
