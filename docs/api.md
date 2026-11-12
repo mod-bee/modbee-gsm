@@ -89,10 +89,13 @@ is still identified at run time, and one that no held driver claims fails
 identification with `NotSupportedByModule`, as an unknown module does on
 `GsmDevice`.
 
-On an ESP32-S3, holding only `GsmDriverA76XX` links 5.9 KB less flash than
-`GsmDevice`, and holding only `GsmDriverSIM707x` links 7.3 KB less. RAM is not
-saved: the storage for the shipped pair is part of every `GsmDevice`, so a
-one-driver device is that driver's size larger.
+On an ESP32-S3 the A76XX driver's code and tables are about 4.8 KB and the
+SIM707x driver's about 4.2 KB, with their AT command texts besides; a
+one-driver device links only its own. Measured in a ModBee Node UIO PLC
+build, a device holding only `GsmDriverA76XX` made the whole firmware 3.7 KB
+smaller than one holding both. RAM is not saved: the storage for the shipped
+pair is part of every `GsmDevice`, so a one-driver device is that driver's
+size (128 bytes) larger.
 
 **`radioPreference()`** matters on an LPWA module (LTE-M / NB-IoT): one
 searching for a technology that is not on air never registers and never says
