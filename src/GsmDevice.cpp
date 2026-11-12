@@ -36,6 +36,22 @@ bool fits(const char* source, size_t capacity) {
 
 } // namespace
 
+GsmDevice::GsmDevice() {
+    // Constructed here, and only here, so a GsmDeviceWith<> links neither.
+    addDriver(new (_a76xx) GsmDriverA76XX());
+    addDriver(new (_sim707x) GsmDriverSIM707x());
+    _endDrivers = &GsmDevice::endDrivers;
+}
+
+GsmDevice::~GsmDevice() {
+    if (_endDrivers != nullptr) { _endDrivers(this); }
+}
+
+void GsmDevice::endDrivers(GsmDevice* device) {
+    reinterpret_cast<GsmDriverA76XX*>(device->_a76xx)->~GsmDriverA76XX();
+    reinterpret_cast<GsmDriverSIM707x*>(device->_sim707x)->~GsmDriverSIM707x();
+}
+
 bool GsmDeviceBase::begin(GsmTransport* transport) {
     // The storage first, so a board that cannot hold what was asked for is
     // told so by name, before the link is touched.

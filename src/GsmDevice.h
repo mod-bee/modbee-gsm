@@ -65,9 +65,9 @@
 #include "transport/GsmStreamTransport.h"
 #endif
 
-// Everything GsmDevice offers except the drivers, which the derived class
-// supplies. Code that drives "a device" whichever drivers it was built with -
-// a function, a block, a wrapper - takes a GsmDeviceBase&.
+// Everything GsmDevice offers except the drivers, which GsmDevice and
+// GsmDeviceWith<> supply. Code that drives "a device" whichever drivers it was
+// built with takes a GsmDevice& (every device is one) or this.
 class GsmDeviceBase {
 public:
     // --- Opening ---
@@ -416,17 +416,46 @@ private:
 // WHICH DRIVERS ARE LINKED
 // =============================================================================
 //
-// A driver is linked when a device holds one. GsmDevice holds both shipped
-// drivers; GsmDeviceWith<...> holds exactly the ones named, so a board that
-// only ever meets one module family links only that driver:
+// A driver is linked when a device constructs one. GsmDevice() constructs
+// both shipped drivers; GsmDeviceWith<...> is a GsmDevice that constructs
+// exactly the ones named instead, so a board that only ever meets one module
+// family links only that driver:
 //
+//     GsmDevice                       gsm;     // both, chosen at run time
 //     GsmDeviceWith<GsmDriverA76XX>   gsm;     // A76XX only
 //     GsmDeviceWith<GsmDriverSIM707x> gsm;     // SIM707x only
 //     GsmDeviceWith<>                 gsm;     // none; addDriver() your own
 //
-// The module is still identified at run time: a module the named drivers do
-// not claim is refused by name, exactly as GsmDevice refuses an unknown one.
-// Drivers are registered in the order given, and are held by value - no heap.
+// Every one IS a GsmDevice, so code written against GsmDevice& - a function,
+// a block, a wrapper - takes any of them. The module is still identified at
+// run time: a module the held drivers do not claim is refused by name,
+// exactly as GsmDevice refuses an unknown one. Drivers are registered in the
+// order given, and are held by value - no heap.
+
+class GsmDevice : public GsmDeviceBase {
+public:
+    // Both shipped drivers, registered A76XX first.
+    GsmDevice();
+    ~GsmDevice();
+
+    GsmDevice(const GsmDevice&) = delete;
+    GsmDevice& operator=(const GsmDevice&) = delete;
+
+protected:
+    // For GsmDeviceWith<>: no driver is constructed here, so none is linked.
+    struct NoDrivers {};
+    explicit GsmDevice(NoDrivers) {}
+
+private:
+    // The shipped pair lives in storage rather than as members, so the
+    // NoDrivers constructor does not construct - and link - them. Ended
+    // through a pointer set only by the constructor that made them, for the
+    // same reason.
+    alignas(GsmDriverA76XX) unsigned char _a76xx[sizeof(GsmDriverA76XX)];
+    alignas(GsmDriverSIM707x) unsigned char _sim707x[sizeof(GsmDriverSIM707x)];
+    void (*_endDrivers)(GsmDevice*) = nullptr;
+    static void endDrivers(GsmDevice* device);
+};
 
 // The drivers a device holds, constructed before the device and destroyed
 // after it, so the modem never outlives the driver it was given.
@@ -454,15 +483,10 @@ private:
 };
 
 template <typename... Drivers>
-class GsmDeviceWith : private GsmDriverSet<Drivers...>, public GsmDeviceBase {
+class GsmDeviceWith : private GsmDriverSet<Drivers...>, public GsmDevice {
     static_assert(sizeof...(Drivers) <= GSM_DRIVERS_MAX,
                   "more drivers than GSM_DRIVERS_MAX holds");
 
 public:
-    GsmDeviceWith() { this->registerDrivers(*this); }
+    GsmDeviceWith() : GsmDevice(NoDrivers()) { this->registerDrivers(*this); }
 };
-
-// Both shipped drivers, chosen at run time from what the module says. One
-// binary drives either family; a build that knows its family can name it with
-// GsmDeviceWith<> and link only that driver.
-class GsmDevice : public GsmDeviceWith<GsmDriverA76XX, GsmDriverSIM707x> {};
