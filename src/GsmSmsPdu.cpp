@@ -302,6 +302,24 @@ bool decodeAddress(const uint8_t* pdu, size_t length, size_t& offset,
     if (offset + 2 + pairs > length) { return false; }
     if ((size_t)digitCount + 2 > capacity) { return false; }
 
+    // [TS 23.040 9.1.2.5] Type of number 101: ALPHANUMERIC - a name, not a
+    // number ('Vodafone', a provider's portal, a short-code service). The
+    // length still counts semi-octets, and the name is packed seven bits at a
+    // time like message text. Read as digits it comes out as junk that no
+    // allow-list matches and no reply can reach.
+    if ((type & 0x70) == 0x50) {
+        uint8_t septets[16];
+        const size_t count = unpackSeptets(pdu + offset + 2, pairs, (digitCount * 4u) / 7u,
+                                           septets, sizeof septets);
+        gsm7ToAscii(septets, count, out, capacity);
+        offset += 2 + pairs;
+        return true;
+    }
+
+    // [TS 23.040 9.1.2.3] Semi-octets past 9 are the keypad's *, #, a, b, c;
+    // 0xF fills an odd count.
+    static const char kKeypad[] = "0123456789*#abc";
+
     size_t produced = 0;
     if ((type & 0x70) == 0x10) { out[produced++] = '+'; }   // international
 
@@ -310,9 +328,9 @@ bool decodeAddress(const uint8_t* pdu, size_t length, size_t& offset,
         const uint8_t low = (uint8_t)(octet & 0x0F);
         const uint8_t high = (uint8_t)(octet >> 4);
 
-        if (produced + 1 < capacity) { out[produced++] = (char)('0' + low); }
-        if ((i * 2 + 1) < digitCount && produced + 1 < capacity) {
-            out[produced++] = (char)('0' + high);
+        if (low < 0x0F && produced + 1 < capacity) { out[produced++] = kKeypad[low]; }
+        if ((i * 2 + 1) < digitCount && high < 0x0F && produced + 1 < capacity) {
+            out[produced++] = kKeypad[high];
         }
     }
     out[produced] = '\0';
