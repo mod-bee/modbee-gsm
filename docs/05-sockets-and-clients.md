@@ -95,6 +95,14 @@ signature leaves no room for anything else.
 The deadline is 75 seconds by default. `connect(host, port, timeoutSeconds)`
 takes a shorter one, and `net.lastError()` says why a connect failed.
 
+**Sharing the modem between tasks.** Where tasks share the modem under a lock
+and a task of its own services it, give the sockets a `GsmService`
+(`gsm.sockets().setService(&service)`): `enter()` and `leave()` take and give
+back the lock, and `driven()` says whether that task is polling. `connect()`
+and `flush()` then hold the lock only for each check, never across the wait,
+and leave the polling to that task while it runs - so a slow dial never
+freezes the modem for everybody else. Call them without holding the lock.
+
 Everything after `connect()` — `available()`, `read()`, `write()`, `stop()` —
 is non-blocking as usual.
 

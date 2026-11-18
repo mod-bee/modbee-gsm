@@ -256,6 +256,34 @@ private:
     uint32_t _bytesDropped = 0;
 };
 
+// WHO SERVICES THE MODEM, for the waits that cannot return.
+//
+// GsmClient::connect() and GsmClient::flush() wait, because Arduino's Client
+// says they must. Left alone they drive the modem themselves while they wait,
+// which is right for a sketch with one loop. It is wrong where tasks share the
+// modem under a lock and a task of its own services it: a caller holding that
+// lock for a whole dial - up to its timeout, tens of seconds over cellular -
+// stops anybody else servicing the modem, and everything else that reads it
+// sees it frozen.
+//
+// A GsmService tells those waits how to share. The open and the close, and
+// each check of a wait, run between enter() and leave(); the wait itself runs
+// outside them, so the lock is held for a check and never across the modem's
+// round trip. driven() says whether something else polls the modem: while it
+// does, the wait only looks; while it does not, the wait polls, between
+// enter() and leave(), as it always has.
+//
+// Optional. Without one (the default) the waits behave exactly as before. The
+// caller of a wait must not hold the lock itself, or it is never free.
+class GsmService {
+public:
+    virtual void enter() = 0;               // take the lock; may wait for it
+    virtual void leave() = 0;               // give it back
+    virtual bool driven() const = 0;        // asked between the two
+protected:
+    ~GsmService() = default;
+};
+
 // Owns the slots and routes the modem's socket events to them.
 class GsmSockets {
 public:
@@ -301,6 +329,12 @@ public:
 
     GsmModem* modem() const { return _modem; }
 
+    // How the waits share the modem; see GsmService. Null - the default - is
+    // a modem nobody shares. Set before the first wait, and kept for as long
+    // as these sockets are.
+    void setService(GsmService* service) { _service = service; }
+    GsmService* service() const { return _service; }
+
 private:
     friend class GsmSocket;
 
@@ -309,6 +343,7 @@ private:
     void release();
 
     GsmModem* _modem = nullptr;
+    GsmService* _service = nullptr;
     GsmSocket* _sockets = nullptr;     // _count of them, then their buffers
     uint8_t _count = 0;
     size_t  _haveTx = 0;               // the buffers _sockets was built with

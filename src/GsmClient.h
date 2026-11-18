@@ -37,6 +37,11 @@
 // nothing else anywhere waits, and this one exists because Arduino's
 // signature leaves no room for anything else.
 //
+// Where tasks share the modem under a lock, its sockets' GsmService (see
+// GsmSocket.h) makes the wait share it: the lock is taken for each check and
+// never held across the dial, and while a task of its own services the modem
+// the wait only looks. flush() waits the same way.
+//
 // Everything after connect() - available(), read(), write(), stop() - is
 // non-blocking exactly as the rest of the library is. An application that
 // cannot afford even that one call uses GsmSocket directly, where begin()

@@ -31,38 +31,75 @@ void GsmClient::renderAddress(const IPAddress& ip, char* out, size_t capacity) {
     out[position] = '\0';
 }
 
-int GsmClient::connect(const char* host, uint16_t port, int timeoutSeconds) {
-    stop();
-    _failure = GsmStatus::Ok;
+namespace {
 
-    if (_sockets == nullptr) { return 0; }
-    // WHAT THIS CLIENT WAS BUILT TO ASK FOR. Once hardcoded to Plain, which
-    // made module TLS unreachable from the Arduino surface - the one surface
-    // most people use.
-    _socket = _sockets->open(host, port, GsmSocketKind::Tcp, _security);
-    if (_socket == nullptr) {
-        GsmModem* modem = _sockets->modem();
-        _failure = (modem == nullptr || modem->driver() == nullptr)
-            ? GsmResult(GsmStatus::NotReady)
-            : GsmResult(GsmStatus::NoSocketAvailable);
-        return 0;
+// Between GsmService::enter() and leave(), for one scope; nothing at all
+// without a service. See GsmService in GsmSocket.h.
+class Entered {
+public:
+    explicit Entered(GsmService* service) : _service(service) {
+        if (_service != nullptr) { _service->enter(); }
     }
+    ~Entered() {
+        if (_service != nullptr) { _service->leave(); }
+    }
+    Entered(const Entered&) = delete;
+    Entered& operator=(const Entered&) = delete;
 
-    // EVERY FAILURE BELOW HANDS THE SLOT BACK. open() reserved one, and only
-    // end() releases it: a socket that failed is still in use until somebody
-    // ends it. These paths used to drop the pointer instead, so each failed
-    // connect() leaked a slot - and with GSM_SOCKET_SLOTS at 2, the second
-    // connect attempted before the bearer was up left the client unable to
-    // open anything again until the board restarted. An MQTT client retrying
-    // on a backoff makes exactly those attempts.
-    if (!_socket->begin()) { release(); return 0; }
+    // Whether this wait polls the modem itself: unless something else does.
+    bool polls() const { return _service == nullptr || !_service->driven(); }
+
+private:
+    GsmService* const _service;
+};
+
+} // namespace
+
+int GsmClient::connect(const char* host, uint16_t port, int timeoutSeconds) {
+    GsmService* const service = _sockets != nullptr ? _sockets->service() : nullptr;
+
+    // THE OPEN, between enter() and leave(). It only submits the module's
+    // open command; nothing here waits for the modem.
+    {
+        Entered held(service);
+        stop();
+        _failure = GsmStatus::Ok;
+
+        if (_sockets == nullptr) { return 0; }
+        // WHAT THIS CLIENT WAS BUILT TO ASK FOR. Once hardcoded to Plain,
+        // which made module TLS unreachable from the Arduino surface - the one
+        // surface most people use.
+        _socket = _sockets->open(host, port, GsmSocketKind::Tcp, _security);
+        if (_socket == nullptr) {
+            GsmModem* modem = _sockets->modem();
+            _failure = (modem == nullptr || modem->driver() == nullptr)
+                ? GsmResult(GsmStatus::NotReady)
+                : GsmResult(GsmStatus::NoSocketAvailable);
+            return 0;
+        }
+
+        // EVERY FAILURE BELOW HANDS THE SLOT BACK. open() reserved one, and
+        // only end() releases it: a socket that failed is still in use until
+        // somebody ends it. These paths used to drop the pointer instead, so
+        // each failed connect() leaked a slot - and with GSM_SOCKET_SLOTS at
+        // 2, the second connect attempted before the bearer was up left the
+        // client unable to open anything again until the board restarted. An
+        // MQTT client retrying on a backoff makes exactly those attempts.
+        if (!_socket->begin()) { release(); return 0; }
+    }
 
     // THE ONE BLOCKING CALL, AND IT IS BOUNDED.
     //
     // Arduino's Client::connect() must return success or failure, so there is
-    // nowhere to put "still trying". This pumps the library until the socket
-    // resolves or the deadline passes - it never waits on the network without
-    // making progress, and it never waits without an end.
+    // nowhere to put "still trying". This waits until the socket resolves or
+    // the deadline passes - it never waits on the network without making
+    // progress, and it never waits without an end.
+    //
+    // EACH CHECK IS ITS OWN SCOPE, AND THE WAIT IS OUTSIDE IT. With a service
+    // (GsmService) the lock is held for one check - and the poll, when nothing
+    // else polls - never across the dial, so the task servicing the modem
+    // keeps servicing it. Without one, this pumps the library itself, as it
+    // always has.
     //
     // An application that cannot afford this uses GsmSocket::begin() directly,
     // which starts the open and returns immediately.
@@ -71,15 +108,20 @@ int GsmClient::connect(const char* host, uint16_t port, int timeoutSeconds) {
         (gsm_time_t)(gsm_millis() + (uint32_t)timeoutSeconds * 1000u);
 
     while (gsm_isFuture(gsm_millis(), deadline)) {
-        modem->poll();
-        _sockets->poll();
+        {
+            Entered held(service);
+            if (held.polls()) {
+                modem->poll();
+                _sockets->poll();
+            }
 
-        if (_socket->state() == GsmSocketState::Open) { return 1; }
-        if (_socket->state() == GsmSocketState::Failed) { release(); return 0; }
-
+            if (_socket->state() == GsmSocketState::Open) { return 1; }
+            if (_socket->state() == GsmSocketState::Failed) { release(); return 0; }
+        }
         gsm_yield();
     }
 
+    Entered held(service);
     _socket->end();
     _socket = nullptr;
     _failure = GsmStatus::Timeout;
@@ -163,10 +205,20 @@ void GsmClient::flush() {
     // core implements it by waiting. Bounded here by the same reasoning as
     // connect(): a wait with no end is a hang, and a modem that has gone will
     // never drain.
+    //
+    // Each check is its own scope and the wait is outside it, as in connect().
+    GsmService* const service = _sockets->service();
     const gsm_time_t deadline = (gsm_time_t)(gsm_millis() + 10000);
-    while (_socket->pendingOut() > 0 && gsm_isFuture(gsm_millis(), deadline)) {
-        _sockets->modem()->poll();
-        _sockets->poll();
+    for (;;) {
+        {
+            Entered held(service);
+            if (_socket == nullptr || _socket->pendingOut() == 0) { return; }
+            if (!gsm_isFuture(gsm_millis(), deadline)) { return; }
+            if (held.polls()) {
+                _sockets->modem()->poll();
+                _sockets->poll();
+            }
+        }
         gsm_yield();
     }
 }

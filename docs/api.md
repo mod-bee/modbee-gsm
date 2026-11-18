@@ -402,6 +402,19 @@ GsmSocket* socket()    const;             // the socket underneath, or null
 interface demands a verdict. Everything else does not. See
 [05](05-sockets-and-clients.md).
 
+```cpp
+// On GsmSockets: how connect() and flush() share a modem that tasks share
+// under a lock. Null (the default) is a modem nobody shares.
+void        setService(GsmService* service);
+GsmService* service() const;
+
+class GsmService {                 // the application implements it
+    virtual void enter() = 0;      // take the lock
+    virtual void leave() = 0;      // give it back
+    virtual bool driven() const = 0;   // another task polls the modem
+};
+```
+
 ---
 
 ## `GsmResult`
