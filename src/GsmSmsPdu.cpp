@@ -303,7 +303,7 @@ bool decodeAddress(const uint8_t* pdu, size_t length, size_t& offset,
     if ((size_t)digitCount + 2 > capacity) { return false; }
 
     // [TS 23.040 9.1.2.5] Type of number 101: ALPHANUMERIC - a name, not a
-    // number ('Vodafone', a provider's portal, a short-code service). The
+    // number (a carrier's own name, a provider's portal, a short-code service). The
     // length still counts semi-octets, and the name is packed seven bits at a
     // time like message text. Read as digits it comes out as junk that no
     // allow-list matches and no reply can reach.
